@@ -99,7 +99,7 @@ predict(np.random.rand(784), parameters).argmax()
 # input with random number and see result
 # argmax is to find the most possible one
 
-dataset_path = Path('C:/Users/HP/Datasets/MNIST/')
+dataset_path = Path('datasets/MNIST/')
 train_img_path = dataset_path/'train-images.idx3-ubyte'
 train_lab_path = dataset_path/'train-labels.idx1-ubyte'
 test_img_path = dataset_path/'t10k-images.idx3-ubyte'
