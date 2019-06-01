@@ -3,6 +3,7 @@ import numpy as np
 from pathlib import Path
 import struct
 import matplotlib.pyplot as plt
+import copy
 # numpy and math is for functions and algebra
 # struct is for unpacking data sets
 # matplotlib is for plotting the pictures
@@ -282,3 +283,54 @@ for i in range(784):
     value2 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
     grad_list.append(derivative[i]-(value2-value1)/h)
 print(np.abs(grad_list).max())
+
+
+def valid_loss(parameters):
+    loss_accu = 0
+    for img_i in range(valid_num):
+        loss_accu += sqr_loss(valid_img[img_i], valid_lab[img_i], parameters)
+    return loss_accu
+
+
+def valid_accuracy(parameters):
+    correct = [predict(valid_img[img_i], parameters).argmax() == valid_lab[img_i] for img_i in range(valid_num)]
+    print('validation accuracy: {}'.format(correct.count(True)/len(correct)))
+
+
+batch_size = 100
+
+
+def train_batch(current_batch, parameters):
+    grad_accu = grad_parameters(train_img[current_batch*batch_size+0], train_lab[current_batch*batch_size+0], parameters)
+    for img_i in range(1, batch_size):
+        grad_tmp = grad_parameters(train_img[current_batch * batch_size + img_i],train_lab[current_batch * batch_size + img_i], parameters)
+        for key in grad_accu.keys():
+            grad_accu[key] += grad_tmp[key]
+    for key in grad_accu.keys():
+        grad_accu[key] /= batch_size
+    return grad_accu
+
+
+# train_batch(0, parameters)
+
+
+def combine_parameters(parameters, grad, learn_rate):
+    parameter_tmp = copy.deepcopy(parameters)
+    parameter_tmp[0]['b'] -= learn_rate * grad['b0']
+    parameter_tmp[1]['b'] -= learn_rate * grad['b1']
+    parameter_tmp[1]['w'] -= learn_rate * grad['w1']
+    return parameter_tmp
+
+
+combine_parameters(parameters, train_batch(0, parameters), 1)
+
+parameters = init_parameters()
+print(valid_accuracy(parameters))
+learn_rate = 1
+for i in range(train_num//batch_size):
+    if i % 100 == 99:
+        print('running batch {}/{}'.format(i+1, train_num//batch_size))
+    grad_tmp = train_batch(i, parameters)
+    parameters = combine_parameters(parameters, grad_tmp, learn_rate)
+
+print(valid_accuracy(parameters))
