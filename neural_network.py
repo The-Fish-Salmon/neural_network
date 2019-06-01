@@ -53,7 +53,7 @@ def init_parameters_w(layer):
     dist = distribution[layer]['w']
     return np.random.rand(dimensions[layer - 1], dimensions[layer]) * (dist[1] - dist[0] + dist[0])
 # same as the initializing of b
-#  But we want a 2 dimensional number so dimensions[layer - 1], dimensions[layer]
+# but we want a 2 dimensional number so dimensions[layer - 1], dimensions[layer]
 # since there is not w in layer 0, no need to worry about layer -1
 
 
@@ -172,3 +172,113 @@ show_valid(np.random.randint(valid_num))
 plt.show()
 show_test(np.random.randint(test_num))
 plt.show()
+
+
+def d_softmax(data):
+    sm = softmax(data)
+    return np.diag(sm)-np.outer(sm, sm)
+# diag: give a matrix with only diag have value
+# outer: each row times the value of the second string in order
+
+
+#def d_tanh(data):
+#    return np.diag(1/(np.cosh(data))**2)
+def d_tanh(data):
+    return 1/(np.cosh(data))**2
+
+
+differential = {softmax: d_softmax, tanh: d_tanh}
+'''
+h = 0.0001
+func = softmax
+input_len = 4
+for i in range(input_len):
+    test_input = np.random.rand(input_len)
+    derivative = differential[func](test_input)
+    value1 = func(test_input)
+    test_input[i] += h
+    value2 = func(test_input)
+    # print((value2-value1)/h)
+    # print(derivative[i])
+    print(derivative[i]-(value2-value1)/h)
+
+
+h = 0.0001
+func = tanh
+input_len = 4
+for i in range(input_len):
+    test_input = np.random.rand(input_len)
+    derivative = differential[func](test_input)
+    value1 = func(test_input)
+    test_input[i] += h
+    value2 = func(test_input)
+    # print((value2-value1)/h)
+    # print(derivative[i])
+    print(derivative[i]-(value2-value1)/h)
+'''
+onehot = np.identity(dimensions[-1])
+
+
+def sqr_loss(img, lab, parameters):
+    y_pred = predict(img, parameters)
+    y = onehot[lab]
+    diff = y-y_pred
+    return np.dot(diff, diff)
+
+
+def grad_parameters(img, lab, parameters):
+    l0_in = img + parameters[0]['b']
+    l0_out = activation[0](l0_in)
+    l1_in = np.dot(l0_out, parameters[1]['w']) + parameters[1]['b']
+    l1_out = activation[1](l1_in)
+
+    diff = onehot[lab]-l1_out
+    act1 = np.dot(differential[activation[1]](l1_in), diff)
+
+    grad_b1 = -2*act1
+    grad_w1 = -2*np.outer(l0_out, act1)
+    grad_b0 = -2*differential[activation[0]](l0_in)*np.dot(parameters[1]['w'], act1)
+
+    return {'w1': grad_w1, 'b1': grad_b1, 'b0': grad_b0}
+
+
+# print(grad_parameters(train_img[2], train_lab[2], init_parameters()))
+
+
+# b1
+h = 0.00001
+for i in range(10):
+    img_i = np.random.randint(train_num)
+    test_parameters = init_parameters()
+    derivative = grad_parameters(train_img[img_i], train_lab[img_i], test_parameters)['b1']
+    value1 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
+    test_parameters[1]['b'][i] += h
+    value2 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
+    derivative[i]-(value2-value1)/h
+
+# w1
+grad_list = []
+h = 0.00001
+for i in range(784):
+    for j in range(10):
+        img_i = np.random.randint(train_num)
+        test_parameters = init_parameters()
+        derivative = grad_parameters(train_img[img_i], train_lab[img_i], test_parameters)['w1']
+        value1 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
+        test_parameters[1]['w'][i][j] += h
+        value2 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
+        grad_list.append(derivative[i][j] - (value2 - value1) / h)
+np.abs(grad_list).max()
+
+# b0
+grad_list = []
+h = 0.00001
+for i in range(784):
+    img_i = np.random.randint(train_num)
+    test_parameters = init_parameters()
+    derivative = grad_parameters(train_img[img_i], train_lab[img_i], test_parameters)['b0']
+    value1 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
+    test_parameters[0]['b'][i] += h
+    value2 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
+    grad_list.append(derivative[i]-(value2-value1)/h)
+print(np.abs(grad_list).max())
