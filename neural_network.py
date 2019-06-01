@@ -42,7 +42,7 @@ distribution = [
 def init_parameters_b(layer):
     dist = distribution[layer]['b']
 # find dist as the distribution number "layer" and find b
-    return np.random.rand(dimensions[layer]) * (dist[1] - dist[0] + dist[0])
+    return np.random.rand(dimensions[layer]) * (dist[1] - dist[0]) + dist[0]
 # return as a range because the dimension is a range
 # give the number of "layer" amount of random number: e.g. 1 st layer will have 28x28
 # then use the * (dist[1] - dist[0] + dist[0]) to make it into the dimension we want
@@ -52,7 +52,7 @@ def init_parameters_b(layer):
 
 def init_parameters_w(layer):
     dist = distribution[layer]['w']
-    return np.random.rand(dimensions[layer - 1], dimensions[layer]) * (dist[1] - dist[0] + dist[0])
+    return np.random.rand(dimensions[layer - 1], dimensions[layer]) * (dist[1] - dist[0]) + dist[0]
 # same as the initializing of b
 # but we want a 2 dimensional number so dimensions[layer - 1], dimensions[layer]
 # since there is not w in layer 0, no need to worry about layer -1
@@ -125,7 +125,7 @@ with open(train_img_path, 'rb') as f:
     # >: bit stored direction is greater first;
     # 4: 4 values
     # i: as integer
-    tmp_img = np.fromfile(f, dtype=np.uint8).reshape(-1, 28 * 28)
+    tmp_img = np.fromfile(f, dtype=np.uint8).reshape(-1, 28 * 28)/255
     # read from f, using data type: no sign(u), integer(int), 1 byte (8)
     # because all img is linked, we need to separate it to 28 x 28 imgs
     # feed back a 2 dimensional matrix where each row is an img
@@ -136,7 +136,7 @@ with open(train_img_path, 'rb') as f:
     # [train_num:] : after train_num; in this case the 10000 img after the 50000 img
 with open(test_img_path, 'rb') as f:
     struct.unpack('>4i', f.read(16))
-    test_img = np.fromfile(f, dtype=np.uint8).reshape(-1, 28 * 28)
+    test_img = np.fromfile(f, dtype=np.uint8).reshape(-1, 28 * 28)/255
 with open(train_lab_path, 'rb') as f:
     struct.unpack('>2i', f.read(8))
     # labs only have 2 unused value(8 byte), said in the data set description
@@ -167,12 +167,14 @@ def show_test(index):
 
 
 # show a random img from training, validation, and testing and print its label
+'''
 show_train(np.random.randint(train_num))
 plt.show()
 show_valid(np.random.randint(valid_num))
 plt.show()
 show_test(np.random.randint(test_num))
 plt.show()
+'''
 
 
 def d_softmax(data):
@@ -182,7 +184,7 @@ def d_softmax(data):
 # outer: each row times the value of the second string in order
 
 
-#def d_tanh(data):
+# def d_tanh(data):
 #    return np.diag(1/(np.cosh(data))**2)
 def d_tanh(data):
     return 1/(np.cosh(data))**2
@@ -225,6 +227,9 @@ def sqr_loss(img, lab, parameters):
     y = onehot[lab]
     diff = y-y_pred
     return np.dot(diff, diff)
+
+
+# print(sqr_loss(train_img[0],train_lab[0],parameters))
 
 
 def grad_parameters(img, lab, parameters):
@@ -273,7 +278,7 @@ np.abs(grad_list).max()
 
 # b0
 grad_list = []
-h = 0.00001
+h = 0.001
 for i in range(784):
     img_i = np.random.randint(train_num)
     test_parameters = init_parameters()
@@ -282,19 +287,31 @@ for i in range(784):
     test_parameters[0]['b'][i] += h
     value2 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
     grad_list.append(derivative[i]-(value2-value1)/h)
-print(np.abs(grad_list).max())
+np.abs(grad_list).max()
 
 
 def valid_loss(parameters):
     loss_accu = 0
     for img_i in range(valid_num):
         loss_accu += sqr_loss(valid_img[img_i], valid_lab[img_i], parameters)
-    return loss_accu
+    return loss_accu/(valid_num//10000)
 
 
 def valid_accuracy(parameters):
     correct = [predict(valid_img[img_i], parameters).argmax() == valid_lab[img_i] for img_i in range(valid_num)]
-    print('validation accuracy: {}'.format(correct.count(True)/len(correct)))
+    return correct.count(True)/len(correct)
+
+
+def train_loss(parameters):
+    loss_accu = 0
+    for img_i in range(train_num):
+        loss_accu += sqr_loss(train_img[img_i], train_lab[img_i], parameters)
+    return loss_accu/(train_num/10000)
+
+
+def train_accuracy(parameters):
+    correct = [predict(train_img[img_i], parameters).argmax() == train_lab[img_i] for img_i in range(train_num)]
+    return correct.count(True)/len(correct)
 
 
 batch_size = 100
@@ -303,7 +320,7 @@ batch_size = 100
 def train_batch(current_batch, parameters):
     grad_accu = grad_parameters(train_img[current_batch*batch_size+0], train_lab[current_batch*batch_size+0], parameters)
     for img_i in range(1, batch_size):
-        grad_tmp = grad_parameters(train_img[current_batch * batch_size + img_i],train_lab[current_batch * batch_size + img_i], parameters)
+        grad_tmp = grad_parameters(train_img[current_batch * batch_size + img_i], train_lab[current_batch * batch_size + img_i], parameters)
         for key in grad_accu.keys():
             grad_accu[key] += grad_tmp[key]
     for key in grad_accu.keys():
@@ -322,15 +339,50 @@ def combine_parameters(parameters, grad, learn_rate):
     return parameter_tmp
 
 
-combine_parameters(parameters, train_batch(0, parameters), 1)
+# combine_parameters(parameters, train_batch(0, parameters), 1)
 
 parameters = init_parameters()
+current_epoch = 0
+train_loss_list = []
+valid_loss_list = []
+train_accu_list = []
+valid_accu_list = []
 print(valid_accuracy(parameters))
-learn_rate = 1
-for i in range(train_num//batch_size):
-    if i % 100 == 99:
-        print('running batch {}/{}'.format(i+1, train_num//batch_size))
-    grad_tmp = train_batch(i, parameters)
-    parameters = combine_parameters(parameters, grad_tmp, learn_rate)
+learn_rate = 10**-0.6
+epoch_num = 10
+for epoch in range(epoch_num):
+    for i in range(train_num//batch_size):
+        if i % 100 == 99:
+            print('running batch {}/{}'.format(i+1, train_num//batch_size))
+        grad_tmp = train_batch(i, parameters)
+        parameters = combine_parameters(parameters, grad_tmp, learn_rate)
+    current_epoch += 1
+    train_loss_list.append(train_loss(parameters))
+    train_accu_list.append(train_accuracy(parameters))
+    valid_loss_list.append(valid_loss(parameters))
+    valid_accu_list.append(valid_accuracy(parameters))
 
-print(valid_accuracy(parameters))
+lower = -20
+plt.plot(valid_loss_list[lower:], color='black', label='validation loss')
+plt.plot(train_loss_list[lower:], color='red', label='train loss')
+plt.show()
+plt.plot(valid_accu_list[lower:], color='black', label='validation accuracy')
+plt.plot(train_accu_list[lower:], color='red', label='train accuracy')
+plt.show()
+
+rand_batch = np.random.randint(train_num//batch_size)
+grad_lr = train_batch(rand_batch, parameters)
+
+lr_list = []
+lower = -2.75
+upper = -0.75
+step = 0.1
+for lr_pow in np.linspace(lower, upper, num = (upper-lower)//step+1):
+    learn_rate = 10**lr_pow
+    parameters_tmp = combine_parameters(parameters, grad_lr, learn_rate)
+    train_loss_tmp = train_loss(parameters_tmp)
+    lr_list.append([lr_pow, train_loss_tmp])
+
+upper = len(lr_list)
+plt.plot(np.array(lr_list)[:upper, 0], np.array(lr_list)[:upper, 1], color='black')
+plt.show()
