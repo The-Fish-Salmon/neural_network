@@ -10,6 +10,10 @@ import copy
 # pathlib is for path def
 
 
+def bypass(x):
+    return x
+
+
 def tanh(x):
     return np.tanh(x)
 # defining tan function: change around +-1 but flat above +-2
@@ -23,11 +27,30 @@ def softmax(x):
 # the sum have to have () because the exp.sum is a algebra object
 
 
-dimensions = [28 * 28, 10]
-activation = [tanh, softmax]
+def d_softmax(data):
+    sm = softmax(data)
+    return np.diag(sm)-np.outer(sm, sm)
+# diag: give a matrix with only diag have value
+# outer: each row times the value of the second string in order
+
+
+def d_tanh(data):
+    return 1/(np.cosh(data))**2
+
+
+def d_bypass(x):
+    return 1
+
+
+differential = {softmax: d_softmax, tanh: d_tanh, bypass: d_bypass}
+d_type = {bypass: 'times', softmax: 'dot', tanh: 'times'}
+
+dimensions = [28 * 28, 100, 10]
+activation = [bypass, tanh, softmax]
 distribution = [
-    {'b': [0, 0]},
+    {},  # leave it empty!!
     {'b': [0, 0], 'w': [-math.sqrt(6 / (dimensions[0] + dimensions[1])), math.sqrt(6 / (dimensions[0] + dimensions[1]))]},
+    {'b': [0, 0], 'w': [-math.sqrt(6 / (dimensions[1] + dimensions[2])), math.sqrt(6 / (dimensions[1] + dimensions[2]))]},
 ]
 # l0 = A(data + b0)
 # output = A' (l0 * w1 + b1)
@@ -84,21 +107,13 @@ parameters = init_parameters()
 
 
 def predict(img, parameters):
-    l0_in = img + parameters[0]['b']
-    # data + b0
-    l0_out = activation[0](l0_in)
-    # run function tan the 0th layer
-    l1_in = np.dot(l0_out, parameters[1]['w']) + parameters[1]['b']
-    # get the input of the softmax function the 1st layer
-    # np,dot is combining 2 arrays this case: the w and the l0 output
-    l1_out = activation[1](l1_in)
-    # run through the softmax function
-    return l1_out
+    l_in = img
+    l_out = activation[0](l_in)
+    for layer in range(1, len(dimensions)):
+        l_in = np.dot(l_out, parameters[layer]['w']) + parameters[layer]['b']
+        l_out = activation[layer](l_in)
+    return l_out
 
-
-predict(np.random.rand(784), parameters).argmax()
-# input with random number and see result
-# argmax is to find the most possible one
 
 dataset_path = Path('datasets/MNIST/')
 train_img_path = dataset_path/'train-images.idx3-ubyte'
@@ -166,32 +181,6 @@ def show_test(index):
     print('label : {}'.format(test_lab[index]))
 
 
-# show a random img from training, validation, and testing and print its label
-'''
-show_train(np.random.randint(train_num))
-plt.show()
-show_valid(np.random.randint(valid_num))
-plt.show()
-show_test(np.random.randint(test_num))
-plt.show()
-'''
-
-
-def d_softmax(data):
-    sm = softmax(data)
-    return np.diag(sm)-np.outer(sm, sm)
-# diag: give a matrix with only diag have value
-# outer: each row times the value of the second string in order
-
-
-# def d_tanh(data):
-#    return np.diag(1/(np.cosh(data))**2)
-def d_tanh(data):
-    return 1/(np.cosh(data))**2
-
-
-differential = {softmax: d_softmax, tanh: d_tanh}
-'''
 h = 0.0001
 func = softmax
 input_len = 4
@@ -203,8 +192,7 @@ for i in range(input_len):
     value2 = func(test_input)
     # print((value2-value1)/h)
     # print(derivative[i])
-    print(derivative[i]-(value2-value1)/h)
-
+    # print(derivative[i] - (value2 - value1) / h)
 
 h = 0.0001
 func = tanh
@@ -217,8 +205,9 @@ for i in range(input_len):
     value2 = func(test_input)
     # print((value2-value1)/h)
     # print(derivative[i])
-    print(derivative[i]-(value2-value1)/h)
-'''
+    # print(derivative[i] - (value2 - value1) / h)
+
+
 onehot = np.identity(dimensions[-1])
 
 
@@ -229,65 +218,89 @@ def sqr_loss(img, lab, parameters):
     return np.dot(diff, diff)
 
 
-# print(sqr_loss(train_img[0],train_lab[0],parameters))
-
-
 def grad_parameters(img, lab, parameters):
-    l0_in = img + parameters[0]['b']
-    l0_out = activation[0](l0_in)
-    l1_in = np.dot(l0_out, parameters[1]['w']) + parameters[1]['b']
-    l1_out = activation[1](l1_in)
+    l_in_list = [img]
+    l_out_list = [activation[0](l_in_list[0])]
+    for layer in range(1, len(dimensions)):
+        l_in = np.dot(l_out_list[layer-1], parameters[layer]['w']) + parameters[layer]['b']
+        l_out = activation[layer](l_in)
+        l_in_list.append(l_in)
+        l_out_list.append(l_out)
 
-    diff = onehot[lab]-l1_out
-    act1 = np.dot(differential[activation[1]](l1_in), diff)
+    d_layer = -2*(onehot[lab]-l_out_list[-1])
 
-    grad_b1 = -2*act1
-    grad_w1 = -2*np.outer(l0_out, act1)
-    grad_b0 = -2*differential[activation[0]](l0_in)*np.dot(parameters[1]['w'], act1)
+    grad_result = [None]*len(dimensions)
+    for layer in range(len(dimensions)-1, 0, -1):
+        if d_type[activation[layer]] == 'times':
+            d_layer = differential[activation[layer]](l_in_list[layer])*d_layer
+        if d_type[activation[layer]] == 'dot':
+            d_layer = np.dot(differential[activation[layer]](l_in_list[layer]), d_layer)
+        grad_result[layer] = {}
+        grad_result[layer]['b'] = d_layer
+        grad_result[layer]['w'] = np.outer(l_out_list[layer-1], d_layer)
+        d_layer = np.dot(parameters[layer]['w'], d_layer)
+    return grad_result
 
-    return {'w1': grad_w1, 'b1': grad_b1, 'b0': grad_b0}
 
+parameters = init_parameters()
 
-# print(grad_parameters(train_img[2], train_lab[2], init_parameters()))
-
-
-# b1
 h = 0.00001
-for i in range(10):
+layer = 2
+pname = 'b'
+grad_list = []
+for i in range(len(parameters[layer][pname])):
     img_i = np.random.randint(train_num)
     test_parameters = init_parameters()
-    derivative = grad_parameters(train_img[img_i], train_lab[img_i], test_parameters)['b1']
+    derivative = grad_parameters(train_img[img_i], train_lab[img_i], test_parameters)[layer][pname]
     value1 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
-    test_parameters[1]['b'][i] += h
+    test_parameters[layer][pname][i] += h
     value2 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
-    derivative[i]-(value2-value1)/h
+    grad_list.append(derivative[i] - (value2 - value1) / h)
+# print(np.abs(grad_list).max())
 
-# w1
-grad_list = []
 h = 0.00001
-for i in range(784):
-    for j in range(10):
+layer = 2
+pname = 'w'
+grad_list = []
+for i in range(len(parameters[layer][pname])):
+    for j in range(len(parameters[layer][pname][0])):
         img_i = np.random.randint(train_num)
         test_parameters = init_parameters()
-        derivative = grad_parameters(train_img[img_i], train_lab[img_i], test_parameters)['w1']
+        derivative = grad_parameters(train_img[img_i], train_lab[img_i], test_parameters)[layer][pname]
         value1 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
-        test_parameters[1]['w'][i][j] += h
+        test_parameters[layer][pname][i][j] += h
         value2 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
         grad_list.append(derivative[i][j] - (value2 - value1) / h)
-np.abs(grad_list).max()
+# print(np.abs(grad_list).max())
 
-# b0
+h = 0.00001
+layer = 1
+pname = 'b'
 grad_list = []
-h = 0.001
-for i in range(784):
+for i in range(len(parameters[layer][pname])):
     img_i = np.random.randint(train_num)
     test_parameters = init_parameters()
-    derivative = grad_parameters(train_img[img_i], train_lab[img_i], test_parameters)['b0']
+    derivative = grad_parameters(train_img[img_i], train_lab[img_i], test_parameters)[layer][pname]
     value1 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
-    test_parameters[0]['b'][i] += h
+    test_parameters[layer][pname][i] += h
     value2 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
-    grad_list.append(derivative[i]-(value2-value1)/h)
-np.abs(grad_list).max()
+    grad_list.append(derivative[i] - (value2 - value1) / h)
+# print(np.abs(grad_list).max())
+
+h = 0.00001
+layer = 1
+pname = 'w'
+grad_list = []
+for i in range(len(parameters[layer][pname])):
+    for j in range(len(parameters[layer][pname][0])):
+        img_i = np.random.randint(train_num)
+        test_parameters = init_parameters()
+        derivative = grad_parameters(train_img[img_i], train_lab[img_i], test_parameters)[layer][pname]
+        value1 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
+        test_parameters[layer][pname][i][j] += h
+        value2 = sqr_loss(train_img[img_i], train_lab[img_i], test_parameters)
+        grad_list.append(derivative[i][j] - (value2 - value1) / h)
+# print(np.abs(grad_list).max())
 
 
 def valid_loss(parameters):
@@ -314,6 +327,33 @@ def train_accuracy(parameters):
     return correct.count(True)/len(correct)
 
 
+def test_accuracy(parameters):
+    correct = [predict(test_img[img_i], parameters).argmax() == test_lab[img_i] for img_i in range(test_num)]
+    return correct.count(True)/len(correct)
+
+
+def grad_add(grad1, grad2):
+    for layer in range(1, len(grad1)):
+        for pname in grad1[layer].keys():
+            grad1[layer][pname] += grad2[layer][pname]
+    return grad1
+
+
+def grad_divide(grad, denominator):
+    for layer in range(1, len(grad)):
+        for pname in grad[layer].keys():
+            grad[layer][pname] /= denominator
+    return grad
+
+
+def combine_parameters(parameters, grad, learn_rate):
+    parameter_tmp = copy.deepcopy(parameters)
+    for layer in range(1, len(parameter_tmp)):
+        for pname in parameter_tmp[layer].keys():
+            parameter_tmp[layer][pname] -= learn_rate * grad[layer][pname]
+    return parameter_tmp
+
+
 batch_size = 100
 
 
@@ -321,25 +361,10 @@ def train_batch(current_batch, parameters):
     grad_accu = grad_parameters(train_img[current_batch*batch_size+0], train_lab[current_batch*batch_size+0], parameters)
     for img_i in range(1, batch_size):
         grad_tmp = grad_parameters(train_img[current_batch * batch_size + img_i], train_lab[current_batch * batch_size + img_i], parameters)
-        for key in grad_accu.keys():
-            grad_accu[key] += grad_tmp[key]
-    for key in grad_accu.keys():
-        grad_accu[key] /= batch_size
+        grad_add(grad_accu, grad_tmp)
+        grad_divide(grad_accu, batch_size)
     return grad_accu
 
-
-# train_batch(0, parameters)
-
-
-def combine_parameters(parameters, grad, learn_rate):
-    parameter_tmp = copy.deepcopy(parameters)
-    parameter_tmp[0]['b'] -= learn_rate * grad['b0']
-    parameter_tmp[1]['b'] -= learn_rate * grad['b1']
-    parameter_tmp[1]['w'] -= learn_rate * grad['w1']
-    return parameter_tmp
-
-
-# combine_parameters(parameters, train_batch(0, parameters), 1)
 
 parameters = init_parameters()
 current_epoch = 0
@@ -375,7 +400,7 @@ grad_lr = train_batch(rand_batch, parameters)
 
 lr_list = []
 lower = -2.75
-upper = -0.75
+upper = -0.6
 step = 0.1
 for lr_pow in np.linspace(lower, upper, num = (upper-lower)//step+1):
     learn_rate = 10**lr_pow
